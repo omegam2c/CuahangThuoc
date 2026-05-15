@@ -1,0 +1,3 @@
+product_name,category_id,manufacturer_id,price,discount_percent,generic_name,dosage_form,strength,unit,active_ingredients,indications,is_prescription_required,is_otc,image_url
+Paracetamol Extra 650mg,7,1,22000,5,Paracetamol,Viên nén,650mg,Viên,Paracetamol 650mg,Giảm đau hạ sốt,0,1,paracetamol-extra.jpg
+Vitamin B Complex Plus,8,5,145000,10,Vitamin B Complex,Viên nang,500mg,Viên,"Vitamin B1; Vitamin B6; Vitamin B12",Bổ sung vitamin nhóm B,0,1,vitamin-b-complex.jpg

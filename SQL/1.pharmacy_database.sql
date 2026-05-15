@@ -19,7 +19,7 @@ SET FOREIGN_KEY_CHECKS = 0;
 -- Bảng vai trò (roles)
 CREATE TABLE roles (
     role_id INT PRIMARY KEY AUTO_INCREMENT,
-    role_name VARCHAR(50) NOT NULL UNIQUE COMMENT 'Admin, Dược sĩ, Nhân viên kho, Khách hàng',
+    role_name VARCHAR(50) NOT NULL UNIQUE COMMENT 'Admin, Dược sĩ, Chủ cửa hàng, Khách hàng',
     description TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
@@ -29,7 +29,7 @@ CREATE TABLE users (
     user_id INT PRIMARY KEY AUTO_INCREMENT,
     role_id INT NOT NULL,
     username VARCHAR(50) NOT NULL UNIQUE,
-    password_hash VARCHAR(255) NOT NULL COMMENT 'Mã hóa bằng password_hash() của PHP',
+    password_hash VARCHAR(255) NOT NULL COMMENT 'Mã hóa bằng bcrypt/argon2',
     full_name VARCHAR(100) NOT NULL,
     email VARCHAR(100) UNIQUE,
     phone VARCHAR(20),
@@ -88,28 +88,39 @@ CREATE TABLE categories (
     INDEX idx_parent (parent_category_id)
 ) ENGINE=InnoDB;
 
+-- Bảng hoạt chất (Ingredients) - Chuẩn hóa (Ref point 4)
+CREATE TABLE ingredients (
+    ingredient_id INT PRIMARY KEY AUTO_INCREMENT,
+    ingredient_name VARCHAR(255) NOT NULL UNIQUE,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
 -- Bảng sản phẩm (thuốc)
 CREATE TABLE products (
     product_id INT PRIMARY KEY AUTO_INCREMENT,
     category_id INT NOT NULL,
     manufacturer_id INT,
     product_name VARCHAR(255) NOT NULL,
-    generic_name VARCHAR(255) COMMENT 'Tên hoạt chất chính',
+    generic_name VARCHAR(255) COMMENT 'Tên gốc/nhóm thuốc',
     dosage_form VARCHAR(100) COMMENT 'Viên nén, Viên nang, Siro, Ống tiêm...',
     strength VARCHAR(100) COMMENT 'Nồng độ: 500mg, 10ml...',
     unit VARCHAR(50) DEFAULT 'Viên' COMMENT 'Đơn vị tính: Viên, Hộp, Chai, Tuýp',
     
     -- Thông tin y tế
-    active_ingredients TEXT COMMENT 'Danh sách hoạt chất, phân tách bằng dấu ;',
     indications TEXT COMMENT 'Công dụng, chỉ định',
     contraindications TEXT COMMENT 'Chống chỉ định',
     side_effects TEXT COMMENT 'Tác dụng phụ',
     dosage_instructions TEXT COMMENT 'Liều dùng, cách dùng',
     storage_conditions TEXT COMMENT 'Điều kiện bảo quản',
     
-    -- Phân loại
-    is_prescription_required BOOLEAN DEFAULT FALSE COMMENT 'Có cần đơn thuốc không',
-    is_otc BOOLEAN DEFAULT TRUE COMMENT 'Thuốc không kê đơn (OTC)',
+    -- Phân loại bán hàng - Chuẩn hóa (Ref point 1)
+    sale_type ENUM('otc', 'prescription') DEFAULT 'otc' COMMENT 'OTC: Không kê đơn, Prescription: Kê đơn',
+    is_prescription_required BOOLEAN DEFAULT FALSE,
+    is_otc BOOLEAN DEFAULT TRUE,
+    
+    -- Hoạt chất (Legacy support)
+    active_ingredients TEXT,
     
     -- Giá & hình ảnh
     price DECIMAL(12, 2) NOT NULL DEFAULT 0,
@@ -126,9 +137,17 @@ CREATE TABLE products (
     FOREIGN KEY (manufacturer_id) REFERENCES manufacturers(manufacturer_id) ON DELETE SET NULL,
     INDEX idx_category (category_id),
     INDEX idx_name (product_name),
-    INDEX idx_generic (generic_name),
-    INDEX idx_prescription (is_prescription_required),
-    FULLTEXT idx_search (product_name, generic_name, active_ingredients)
+    INDEX idx_sale_type (sale_type)
+) ENGINE=InnoDB;
+
+-- Bảng liên kết Sản phẩm - Hoạt chất (Ref point 4)
+CREATE TABLE product_ingredients (
+    product_id INT,
+    ingredient_id INT,
+    amount VARCHAR(100) COMMENT 'Hàm lượng: 500mg, 10mg...',
+    PRIMARY KEY (product_id, ingredient_id),
+    FOREIGN KEY (product_id) REFERENCES products(product_id) ON DELETE CASCADE,
+    FOREIGN KEY (ingredient_id) REFERENCES ingredients(ingredient_id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 -- =====================================================
@@ -169,22 +188,20 @@ CREATE TABLE batches (
     batch_id INT PRIMARY KEY AUTO_INCREMENT,
     product_id INT NOT NULL,
     receipt_id INT,
-    batch_number VARCHAR(100) NOT NULL COMMENT 'Số lô do nhà sản xuất cung cấp',
+    batch_number VARCHAR(100) NOT NULL COMMENT 'Số lô sản xuất',
     manufacture_date DATE NOT NULL,
-    expiry_date DATE NOT NULL COMMENT 'Hạn sử dụng - QUAN TRỌNG cho FEFO',
+    expiry_date DATE NOT NULL COMMENT 'Hạn sử dụng - Trọng tâm FEFO',
     
-    quantity_received INT NOT NULL DEFAULT 0 COMMENT 'Số lượng nhập vào',
-    quantity_remaining INT NOT NULL DEFAULT 0 COMMENT 'Số lượng còn lại',
+    quantity_received INT NOT NULL DEFAULT 0,
+    quantity_remaining INT NOT NULL DEFAULT 0,
     
-    purchase_price DECIMAL(12, 2) COMMENT 'Giá nhập',
-    selling_price DECIMAL(12, 2) COMMENT 'Giá bán',
+    purchase_price DECIMAL(12, 2),
+    selling_price DECIMAL(12, 2),
     
-    storage_location VARCHAR(100) COMMENT 'Vị trí lưu kho: Kệ A1, Ngăn B2...',
+    storage_location VARCHAR(100),
     
-    -- Cảnh báo hạn sử dụng
-    expiry_alert_days INT DEFAULT 90 COMMENT 'Cảnh báo trước X ngày hết hạn',
-    is_expired BOOLEAN DEFAULT FALSE,
-    days_to_expiry INT DEFAULT 0,
+    -- Cảnh báo hạn sử dụng (Remove redundant fields - Ref point 2, 3)
+    expiry_alert_days INT DEFAULT 90,
     
     status ENUM('active', 'near_expiry', 'expired', 'recalled') DEFAULT 'active',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -193,9 +210,30 @@ CREATE TABLE batches (
     FOREIGN KEY (receipt_id) REFERENCES stock_receipts(receipt_id) ON DELETE SET NULL,
     INDEX idx_product (product_id),
     INDEX idx_expiry (expiry_date),
-    INDEX idx_batch_number (batch_number),
     INDEX idx_status (status),
     UNIQUE KEY unique_batch (product_id, batch_number)
+) ENGINE=InnoDB;
+
+-- Nhật ký biến động kho (Inventory Transaction Ledger - Ref point 7)
+CREATE TABLE inventory_transactions (
+    transaction_id INT PRIMARY KEY AUTO_INCREMENT,
+    product_id INT NOT NULL,
+    batch_id INT NOT NULL,
+    user_id INT NULL,
+    order_id INT NULL,
+    receipt_id INT NULL,
+    
+    transaction_type ENUM('import', 'sale', 'return', 'expired', 'adjustment', 'cancel_order') NOT NULL,
+    quantity INT NOT NULL COMMENT 'Số lượng thay đổi (+/-)',
+    note TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (product_id) REFERENCES products(product_id) ON DELETE CASCADE,
+    FOREIGN KEY (batch_id) REFERENCES batches(batch_id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE SET NULL,
+    INDEX idx_product_trans (product_id),
+    INDEX idx_batch_trans (batch_id),
+    INDEX idx_type (transaction_type)
 ) ENGINE=InnoDB;
 
 -- Bảng chi tiết phiếu nhập
@@ -210,14 +248,14 @@ CREATE TABLE stock_receipt_details (
     FOREIGN KEY (batch_id) REFERENCES batches(batch_id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
--- Bảng tương tác thuốc (DRUG INTERACTIONS)
+-- Bảng tương tác thuốc (Ref point 5: Symmetry)
 CREATE TABLE drug_interactions (
     interaction_id INT PRIMARY KEY AUTO_INCREMENT,
-    drug_a_id INT NOT NULL COMMENT 'Thuốc thứ nhất',
-    drug_b_id INT NOT NULL COMMENT 'Thuốc thứ hai',
+    drug_a_id INT NOT NULL,
+    drug_b_id INT NOT NULL,
     severity ENUM('mild', 'moderate', 'severe', 'contraindicated') DEFAULT 'moderate',
-    description TEXT COMMENT 'Mô tả tương tác',
-    recommendation TEXT COMMENT 'Khuyến nghị cho bác sĩ/dược sĩ',
+    description TEXT,
+    recommendation TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (drug_a_id) REFERENCES products(product_id) ON DELETE CASCADE,
     FOREIGN KEY (drug_b_id) REFERENCES products(product_id) ON DELETE CASCADE,
@@ -228,14 +266,16 @@ CREATE TABLE drug_interactions (
 -- 5. GIỎ HÀNG & ĐơN HÀNG
 -- =====================================================
 
--- Bảng giỏ hàng
+-- Bảng giỏ hàng (Ref point 9: Uniqueness)
 CREATE TABLE carts (
     cart_id INT PRIMARY KEY AUTO_INCREMENT,
-    user_id INT NOT NULL,
+    user_id INT NULL,
+    session_id VARCHAR(255) NULL UNIQUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
-    UNIQUE KEY unique_user_cart (user_id)
+    INDEX idx_user_cart (user_id),
+    INDEX idx_session_cart (session_id)
 ) ENGINE=InnoDB;
 
 -- Bảng chi tiết giỏ hàng
@@ -256,63 +296,60 @@ CREATE TABLE vouchers (
     voucher_code VARCHAR(50) NOT NULL UNIQUE,
     description TEXT,
     discount_type ENUM('percent', 'fixed') DEFAULT 'percent',
-    discount_value DECIMAL(10, 2) NOT NULL COMMENT 'Phần trăm hoặc số tiền cố định',
-    min_order_amount DECIMAL(12, 2) DEFAULT 0 COMMENT 'Giá trị đơn hàng tối thiểu',
-    max_discount_amount DECIMAL(12, 2) COMMENT 'Giảm tối đa (nếu là %)',
-    usage_limit INT COMMENT 'Số lượt sử dụng tối đa',
+    discount_value DECIMAL(12, 2) NOT NULL,
+    min_order_amount DECIMAL(12, 2) DEFAULT 0,
+    max_discount_amount DECIMAL(12, 2) NULL,
+    usage_limit INT DEFAULT 1,
     used_count INT DEFAULT 0,
     valid_from DATE,
     valid_to DATE,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_code (voucher_code),
-    INDEX idx_validity (valid_from, valid_to)
+    INDEX idx_code (voucher_code)
 ) ENGINE=InnoDB;
 
 -- Bảng đơn hàng
 CREATE TABLE orders (
     order_id INT PRIMARY KEY AUTO_INCREMENT,
-    user_id INT NOT NULL,
-    voucher_id INT,
+    user_id INT NULL,
+    voucher_id INT NULL,
+    
+    order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    subtotal DECIMAL(15, 2) NOT NULL,
+    discount_amount DECIMAL(15, 2) DEFAULT 0,
+    shipping_fee DECIMAL(12, 2) DEFAULT 0,
+    total_amount DECIMAL(15, 2) NOT NULL,
+    
+    payment_method ENUM('cod', 'bank_transfer', 'e_wallet', 'payos') DEFAULT 'cod',
+    payment_status ENUM('unpaid', 'paid', 'refunded') DEFAULT 'unpaid',
+    status ENUM('pending', 'confirmed', 'preparing', 'shipping', 'completed', 'cancelled', 'returned') DEFAULT 'pending',
     
     -- Thông tin giao hàng
     shipping_name VARCHAR(100) NOT NULL,
     shipping_phone VARCHAR(20) NOT NULL,
+    customer_email VARCHAR(100) NULL,
     shipping_address TEXT NOT NULL,
     shipping_note TEXT,
     
-    -- Giá trị đơn hàng
-    subtotal DECIMAL(15, 2) NOT NULL COMMENT 'Tổng tiền trước giảm giá',
-    discount_amount DECIMAL(12, 2) DEFAULT 0,
-    shipping_fee DECIMAL(10, 2) DEFAULT 0,
-    total_amount DECIMAL(15, 2) NOT NULL COMMENT 'Tổng tiền sau giảm giá + ship',
+    -- Đơn thuốc (Nếu có)
+    has_prescription BOOLEAN DEFAULT FALSE,
+    prescription_image VARCHAR(255) NULL,
+    prescription_verified BOOLEAN DEFAULT FALSE,
+    verified_by INT NULL COMMENT 'Dược sĩ xác nhận',
+    verified_at DATETIME NULL,
     
-    -- Đơn thuốc
-    has_prescription BOOLEAN DEFAULT FALSE COMMENT 'Có đính kèm đơn thuốc không',
-    prescription_image VARCHAR(255) COMMENT 'Đường dẫn ảnh đơn thuốc',
-    prescription_verified BOOLEAN DEFAULT FALSE COMMENT 'Dược sĩ đã duyệt đơn',
-    verified_by INT COMMENT 'Dược sĩ duyệt đơn',
-    verified_at DATETIME,
-    
-    -- Trạng thái
-    status ENUM('pending', 'confirmed', 'preparing', 'shipping', 'completed', 'cancelled') DEFAULT 'pending',
-    payment_status ENUM('unpaid', 'paid', 'refunded') DEFAULT 'unpaid',
-    payment_method ENUM('cod', 'bank_transfer', 'e_wallet') DEFAULT 'cod',
-    
-    -- Ghi chú
-    admin_note TEXT COMMENT 'Ghi chú nội bộ của admin',
+    admin_note TEXT,
     cancel_reason TEXT,
     
-    order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE RESTRICT,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE SET NULL,
     FOREIGN KEY (voucher_id) REFERENCES vouchers(voucher_id) ON DELETE SET NULL,
     FOREIGN KEY (verified_by) REFERENCES users(user_id) ON DELETE SET NULL,
-    INDEX idx_user (user_id),
-    INDEX idx_status (status),
-    INDEX idx_date (order_date),
-    INDEX idx_prescription (has_prescription, prescription_verified)
+    INDEX idx_user_order (user_id),
+    INDEX idx_order_date (order_date),
+    INDEX idx_status (status)
 ) ENGINE=InnoDB;
 
 -- Bảng chi tiết đơn hàng
@@ -320,64 +357,41 @@ CREATE TABLE order_details (
     detail_id INT PRIMARY KEY AUTO_INCREMENT,
     order_id INT NOT NULL,
     product_id INT NOT NULL,
-    batch_id INT COMMENT 'Lô hàng được xuất (FEFO)',
-    
-    product_name VARCHAR(255) NOT NULL COMMENT 'Lưu lại tên sản phẩm tại thời điểm mua',
+    batch_id INT NOT NULL COMMENT 'Xuất từ lô nào (FEFO)',
+    product_name VARCHAR(255) NOT NULL,
     quantity INT NOT NULL,
-    unit_price DECIMAL(12, 2) NOT NULL COMMENT 'Giá tại thời điểm mua',
+    unit_price DECIMAL(12, 2) NOT NULL,
     discount_percent DECIMAL(5, 2) DEFAULT 0,
-    subtotal DECIMAL(15, 2) GENERATED ALWAYS AS (quantity * unit_price * (1 - discount_percent/100)) STORED,
-    
+    subtotal DECIMAL(15, 2) NOT NULL,
     FOREIGN KEY (order_id) REFERENCES orders(order_id) ON DELETE CASCADE,
     FOREIGN KEY (product_id) REFERENCES products(product_id) ON DELETE RESTRICT,
-    FOREIGN KEY (batch_id) REFERENCES batches(batch_id) ON DELETE SET NULL,
-    INDEX idx_order (order_id),
-    INDEX idx_product (product_id)
+    FOREIGN KEY (batch_id) REFERENCES batches(batch_id) ON DELETE RESTRICT
 ) ENGINE=InnoDB;
 
--- =====================================================
--- 6. ĐÁNH GIÁ & PHẢN HỒI
--- =====================================================
-
+-- Bảng đánh giá sản phẩm (Ref point 6: Constraint)
 CREATE TABLE reviews (
     review_id INT PRIMARY KEY AUTO_INCREMENT,
     product_id INT NOT NULL,
     user_id INT NOT NULL,
-    order_id INT COMMENT 'Chỉ cho phép đánh giá sau khi mua',
-    rating INT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    order_id INT NULL COMMENT 'Liên kết với đơn hàng đã mua',
+    rating INT NOT NULL COMMENT '1-5 sao',
     comment TEXT,
+    image_url VARCHAR(255),
     is_verified_purchase BOOLEAN DEFAULT FALSE,
+    is_approved BOOLEAN DEFAULT FALSE,
     admin_reply TEXT,
-    is_approved BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (product_id) REFERENCES products(product_id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
     FOREIGN KEY (order_id) REFERENCES orders(order_id) ON DELETE SET NULL,
-    INDEX idx_product (product_id),
-    INDEX idx_rating (rating)
-) ENGINE=InnoDB;
-
--- =====================================================
--- 7. THỐNG KÊ & LOG HỆ THỐNG
--- =====================================================
-
--- Bảng lịch sử giá sản phẩm
-CREATE TABLE price_history (
-    history_id INT PRIMARY KEY AUTO_INCREMENT,
-    product_id INT NOT NULL,
-    old_price DECIMAL(12, 2),
-    new_price DECIMAL(12, 2) NOT NULL,
-    changed_by INT,
-    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (product_id) REFERENCES products(product_id) ON DELETE CASCADE,
-    FOREIGN KEY (changed_by) REFERENCES users(user_id) ON DELETE SET NULL
+    UNIQUE KEY unique_review (product_id, user_id)
 ) ENGINE=InnoDB;
 
 -- Bảng log hoạt động
 CREATE TABLE activity_logs (
     log_id INT PRIMARY KEY AUTO_INCREMENT,
     user_id INT,
-    action VARCHAR(100) NOT NULL COMMENT 'login, logout, create_order, update_product...',
+    action VARCHAR(100) NOT NULL,
     table_name VARCHAR(50),
     record_id INT,
     description TEXT,
@@ -385,83 +399,33 @@ CREATE TABLE activity_logs (
     user_agent TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE SET NULL,
-    INDEX idx_user_action (user_id, action),
-    INDEX idx_date (created_at)
+    INDEX idx_user_action (user_id, action)
+) ENGINE=InnoDB;
+
+-- Bảng lịch sử thay đổi giá (Ref point: Trigger Support)
+CREATE TABLE price_history (
+    history_id INT PRIMARY KEY AUTO_INCREMENT,
+    product_id INT NOT NULL,
+    old_price DECIMAL(12, 2),
+    new_price DECIMAL(12, 2),
+    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (product_id) REFERENCES products(product_id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 -- =====================================================
 -- 8. TRIGGERS & STORED PROCEDURES
 -- =====================================================
 
--- Trigger: Tự động cập nhật số lượng lô hàng khi có đơn hàng
 DELIMITER $$
 
-CREATE TRIGGER after_order_detail_insert
-AFTER INSERT ON order_details
-FOR EACH ROW
-BEGIN
-    -- Cập nhật số lượng còn lại trong lô hàng
-    IF NEW.batch_id IS NOT NULL THEN
-        UPDATE batches 
-        SET quantity_remaining = quantity_remaining - NEW.quantity
-        WHERE batch_id = NEW.batch_id;
-    END IF;
-END$$
 
--- Trigger: Tự động cập nhật trạng thái lô hàng theo hạn sử dụng
-CREATE TRIGGER before_batch_insert
-BEFORE INSERT ON batches
-FOR EACH ROW
-BEGIN
-    SET NEW.is_expired = (NEW.expiry_date < CURDATE());
-    SET NEW.days_to_expiry = DATEDIFF(NEW.expiry_date, CURDATE());
-    
-    -- Nếu đã hết hạn
-    IF NEW.expiry_date < CURDATE() THEN
-        SET NEW.status = 'expired';
-    -- Nếu sắp hết hạn (trong vòng 90 ngày)
-    ELSEIF DATEDIFF(NEW.expiry_date, CURDATE()) <= NEW.expiry_alert_days THEN
-        SET NEW.status = 'near_expiry';
-    ELSE
-        SET NEW.status = 'active';
-    END IF;
-END$$
-
-CREATE TRIGGER before_batch_update
-BEFORE UPDATE ON batches
-FOR EACH ROW
-BEGIN
-    SET NEW.is_expired = (NEW.expiry_date < CURDATE());
-    SET NEW.days_to_expiry = DATEDIFF(NEW.expiry_date, CURDATE());
-    
-    -- Nếu đã hết hạn
-    IF NEW.expiry_date < CURDATE() THEN
-        SET NEW.status = 'expired';
-    -- Nếu sắp hết hạn (trong vòng 90 ngày)
-    ELSEIF DATEDIFF(NEW.expiry_date, CURDATE()) <= NEW.expiry_alert_days THEN
-        SET NEW.status = 'near_expiry';
-    ELSE
-        SET NEW.status = 'active';
-    END IF;
-END$$
-
--- Trigger: Log thay đổi giá sản phẩm
-CREATE TRIGGER after_product_price_update
-AFTER UPDATE ON products
-FOR EACH ROW
-BEGIN
-    IF OLD.price != NEW.price THEN
-        INSERT INTO price_history (product_id, old_price, new_price)
-        VALUES (NEW.product_id, OLD.price, NEW.price);
-    END IF;
-END$$
-
--- Stored Procedure: Lấy lô hàng theo FEFO (First Expired, First Out)
+-- Stored Procedure: Lấy lô hàng theo FEFO (Ref point 8: Concurrency)
 CREATE PROCEDURE get_batch_fefo(
     IN p_product_id INT,
     IN p_quantity_needed INT
 )
 BEGIN
+    -- Sử dụng FOR UPDATE để tránh oversell trong transaction
     SELECT 
         batch_id,
         batch_number,
@@ -474,64 +438,64 @@ BEGIN
         AND status = 'active'
         AND expiry_date > CURDATE()
     ORDER BY expiry_date ASC, manufacture_date ASC
-    LIMIT 5;
+    LIMIT 5
+    FOR UPDATE;
 END$$
 
--- Stored Procedure: Kiểm tra tương tác thuốc trong giỏ hàng
+-- Stored Procedure: Kiểm tra tương tác thuốc trong giỏ hàng (Ref point 5: Safety)
 CREATE PROCEDURE check_cart_interactions(
     IN p_cart_id INT
 )
 BEGIN
-    SELECT DISTINCT
-        di.interaction_id,
-        p1.product_name AS drug_1,
-        p2.product_name AS drug_2,
+    SELECT 
         di.severity,
         di.description,
-        di.recommendation
+        di.recommendation,
+        p1.product_name AS drug_a_name,
+        p2.product_name AS drug_b_name
     FROM cart_items ci1
     JOIN cart_items ci2 ON ci1.cart_id = ci2.cart_id AND ci1.product_id < ci2.product_id
-    JOIN drug_interactions di ON (
-        (di.drug_a_id = ci1.product_id AND di.drug_b_id = ci2.product_id) OR
-        (di.drug_a_id = ci2.product_id AND di.drug_b_id = ci1.product_id)
-    )
-    JOIN products p1 ON p1.product_id = ci1.product_id
-    JOIN products p2 ON p2.product_id = ci2.product_id
+    JOIN drug_interactions di ON 
+        (ci1.product_id = di.drug_a_id AND ci2.product_id = di.drug_b_id)
+    JOIN products p1 ON ci1.product_id = p1.product_id
+    JOIN products p2 ON ci2.product_id = p2.product_id
     WHERE ci1.cart_id = p_cart_id;
 END$$
 
--- Stored Procedure: Thống kê doanh thu theo tháng
-CREATE PROCEDURE get_monthly_revenue(
-    IN p_year INT,
-    IN p_month INT
-)
+-- Trigger: Ngăn chặn tương tác thuốc trùng lặp (Ref point 5: Symmetry)
+CREATE TRIGGER trg_drug_interactions_symmetry
+BEFORE INSERT ON drug_interactions
+FOR EACH ROW
 BEGIN
-    SELECT 
-        DATE(order_date) as order_date,
-        COUNT(order_id) as total_orders,
-        SUM(total_amount) as daily_revenue,
-        SUM(CASE WHEN status = 'completed' THEN total_amount ELSE 0 END) as completed_revenue
-    FROM orders
-    WHERE YEAR(order_date) = p_year 
-        AND MONTH(order_date) = p_month
-    GROUP BY DATE(order_date)
-    ORDER BY order_date;
+    DECLARE temp_id INT;
+    IF NEW.drug_a_id > NEW.drug_b_id THEN
+        SET temp_id = NEW.drug_a_id;
+        SET NEW.drug_a_id = NEW.drug_b_id;
+        SET NEW.drug_b_id = temp_id;
+    END IF;
 END$$
 
--- Function: Tính tuổi lô hàng (ngày)
-CREATE FUNCTION get_batch_age(p_batch_id INT)
-RETURNS INT
-DETERMINISTIC
-READS SQL DATA
+-- Trigger: Kiểm tra rating (Ref point 6: MySQL 5.7 support)
+CREATE TRIGGER trg_reviews_rating_check
+BEFORE INSERT ON reviews
+FOR EACH ROW
 BEGIN
-    DECLARE batch_age INT;
+    IF NEW.rating < 1 OR NEW.rating > 5 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Rating must be between 1 and 5';
+    END IF;
+END$$
+
+-- Trigger: Tự động cập nhật số lượng lô hàng từ ledger (Ref point 7)
+CREATE TRIGGER trg_inventory_transaction_after_insert
+AFTER INSERT ON inventory_transactions
+FOR EACH ROW
+BEGIN
+    UPDATE batches 
+    SET quantity_remaining = quantity_remaining + NEW.quantity
+    WHERE batch_id = NEW.batch_id;
     
-    SELECT DATEDIFF(CURDATE(), manufacture_date)
-    INTO batch_age
-    FROM batches
-    WHERE batch_id = p_batch_id;
-    
-    RETURN IFNULL(batch_age, 0);
+    -- Nếu số lượng về 0, chuyển status sang active (hoặc giữ nguyên nếu cần)
+    -- Nếu hết hạn, trigger khác sẽ xử lý hoặc qua View
 END$$
 
 DELIMITER ;
@@ -600,27 +564,27 @@ HAVING total_sold > 0
 ORDER BY total_sold DESC;
 
 -- View: Cảnh báo lô hàng sắp hết hạn
-CREATE VIEW v_expiry_alerts AS
+CREATE OR REPLACE VIEW v_expiry_alerts AS
 SELECT 
     b.batch_id,
     p.product_name,
     b.batch_number,
     b.manufacture_date,
     b.expiry_date,
-    b.days_to_expiry,
+    DATEDIFF(b.expiry_date, CURDATE()) as days_to_expiry,
     b.quantity_remaining,
     b.storage_location,
     b.status,
     CASE 
-        WHEN b.days_to_expiry <= 0 THEN 'danger'
-        WHEN b.days_to_expiry <= 30 THEN 'warning'
-        WHEN b.days_to_expiry <= 90 THEN 'info'
+        WHEN DATEDIFF(b.expiry_date, CURDATE()) <= 0 THEN 'danger'
+        WHEN DATEDIFF(b.expiry_date, CURDATE()) <= 30 THEN 'warning'
+        WHEN DATEDIFF(b.expiry_date, CURDATE()) <= 90 THEN 'info'
         ELSE 'normal'
     END as alert_level
 FROM batches b
 JOIN products p ON b.product_id = p.product_id
 WHERE b.quantity_remaining > 0 
-    AND b.days_to_expiry <= 90
+    AND DATEDIFF(b.expiry_date, CURDATE()) <= 90
 ORDER BY b.expiry_date ASC;
 
 -- =====================================================
@@ -629,41 +593,46 @@ ORDER BY b.expiry_date ASC;
 
 -- 10.1 Vai trò
 INSERT INTO roles (role_name, description) VALUES
-('Admin', 'Quản trị viên hệ thống - toàn quyền'),
+('Admin', 'Quản trị viên kỹ thuật - cấu hình hệ thống'),
 ('Dược sĩ', 'Dược sĩ - duyệt đơn thuốc, tư vấn khách hàng'),
-('Nhân viên kho', 'Nhân viên quản lý kho - nhập xuất hàng'),
+('Chủ cửa hàng', 'Chủ cửa hàng - quản lý doanh thu, nhân sự và nhập hàng'),
 ('Khách hàng', 'Khách hàng - mua hàng trực tuyến');
 
--- 10.2 Quyền
+-- 10.2 Quyền (Permissions)
 INSERT INTO permissions (permission_name, description) VALUES
-('view_dashboard', 'Xem dashboard thống kê'),
-('manage_products', 'Quản lý sản phẩm (CRUD)'),
-('manage_inventory', 'Quản lý kho hàng'),
-('manage_orders', 'Quản lý đơn hàng'),
-('approve_prescriptions', 'Duyệt đơn thuốc'),
-('manage_users', 'Quản lý người dùng'),
-('view_reports', 'Xem báo cáo'),
-('manage_suppliers', 'Quản lý nhà cung cấp');
+('view_business_stats', 'Xem báo cáo doanh thu, lợi nhuận'),
+('manage_inventory', 'Quản lý nhập kho, lô hàng, nhà cung cấp'),
+('manage_pharmacists', 'Quản lý tài khoản dược sĩ'),
+('manage_prices_vouchers', 'Quản lý giá bán và mã giảm giá'),
+('approve_prescriptions', 'Duyệt chuyên môn đơn thuốc'),
+('process_orders', 'Tiếp nhận và xử lý đơn hàng'),
+('system_config', 'Cấu hình hệ thống (SMTP, API)'),
+('view_audit_logs', 'Xem nhật ký hệ thống và bảo mật'),
+('manage_categories', 'Quản lý danh mục và thông số thuốc'),
+('view_inventory', 'Xem tồn kho và lô hàng'),
+('manage_chatbot', 'Cấu hình Trợ lý AI Gemini');
 
--- Phân quyền cho Admin
+-- Phân quyền cho Chủ cửa hàng (Role 3)
+INSERT INTO role_permissions (role_id, permission_id) 
+SELECT 3, permission_id FROM permissions 
+WHERE permission_name IN ('view_business_stats', 'manage_inventory', 'manage_pharmacists', 'manage_prices_vouchers', 'process_orders', 'manage_chatbot', 'view_audit_logs');
+
+-- Phân quyền cho Dược sĩ (Role 2)
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT 2, permission_id FROM permissions 
+WHERE permission_name IN ('approve_prescriptions', 'process_orders', 'view_inventory');
+
+-- Phân quyền cho Admin (Role 1) - Toàn quyền hệ thống
 INSERT INTO role_permissions (role_id, permission_id)
 SELECT 1, permission_id FROM permissions;
 
--- Phân quyền cho Dược sĩ
-INSERT INTO role_permissions (role_id, permission_id) VALUES
-(2, 1), (2, 4), (2, 5), (2, 7);
-
--- Phân quyền cho Nhân viên kho
-INSERT INTO role_permissions (role_id, permission_id) VALUES
-(3, 3), (3, 8);
-
--- 10.3 Người dùng (Mật khẩu: "123456")
-INSERT INTO users (role_id, username, password_hash, full_name, email, phone, address) VALUES
-(1, 'admin', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Nguyễn Văn Admin', 'admin@pharmacy.com', '0901234567', '123 Nguyễn Huệ, Q.1, TP.HCM'),
-(2, 'duocsi01', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Trần Thị Hoa', 'duocsi@pharmacy.com', '0907654321', '456 Lê Lợi, Q.1, TP.HCM'),
-(3, 'kho01', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Lê Văn Kho', 'kho@pharmacy.com', '0909876543', '789 Trần Hưng Đạo, Q.5, TP.HCM'),
-(4, 'khach01', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Phạm Thị Lan', 'lan@gmail.com', '0912345678', '321 Võ Văn Tần, Q.3, TP.HCM'),
-(4, 'khach02', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Hoàng Văn Nam', 'nam@gmail.com', '0923456789', '654 Cách Mạng Tháng 8, Q.10, TP.HCM');
+-- 10.3 Người dùng (Tất cả mật khẩu: "Check@123")
+REPLACE INTO users (user_id, role_id, username, password_hash, full_name, email, phone, address) VALUES
+(1, 1, 'admin',    '$2y$10$.VMzF/ziiVGRvO0mF0FL5ecA53LXSBw2UvNeRA4br9D1BNpmXjXRG', 'Nguyễn Văn Admin',  'admin@pharmacy.com',  '0901234567', '123 Nguyễn Huệ, Q.1, TP.HCM'),
+(2, 2, 'duocsi01', '$2y$10$.VMzF/ziiVGRvO0mF0FL5ecA53LXSBw2UvNeRA4br9D1BNpmXjXRG', 'Trần Thị Hoa',      'duocsi@pharmacy.com', '0907654321', '456 Lê Lợi, Q.1, TP.HCM'),
+(3, 3, 'chu01',    '$2y$10$.VMzF/ziiVGRvO0mF0FL5ecA53LXSBw2UvNeRA4br9D1BNpmXjXRG', 'Nguyễn Thúy Nga',   'owner@pharmacy.com',  '0909876543', '789 Trần Hưng Đạo, Q.5, TP.HCM'),
+(4, 4, 'khach01',  '$2y$10$.VMzF/ziiVGRvO0mF0FL5ecA53LXSBw2UvNeRA4br9D1BNpmXjXRG', 'Phạm Thị Lan',      'khach01@gmail.com',   '0912345678', '321 Võ Văn Tần, Q.3, TP.HCM'),
+(5, 4, 'khach02',  '$2y$10$.VMzF/ziiVGRvO0mF0FL5ecA53LXSBw2UvNeRA4br9D1BNpmXjXRG', 'Hoàng Văn Nam',     'khach02@gmail.com',   '0923456789', '654 Cách Mạng Tháng 8, Q.10, TP.HCM');
 
 -- 10.4 Nhà sản xuất
 INSERT INTO manufacturers (manufacturer_name, country, website) VALUES
@@ -688,7 +657,7 @@ INSERT INTO categories (category_name, description, parent_category_id) VALUES
 -- 10.6 Sản phẩm
 INSERT INTO products (category_id, manufacturer_id, product_name, generic_name, dosage_form, strength, unit, 
     active_ingredients, indications, contraindications, side_effects, dosage_instructions, storage_conditions,
-    is_prescription_required, is_otc, price, image_url) VALUES
+    is_prescription_required, is_otc, price, discount_percent, image_url) VALUES
 
 (6, 1, 'Amoxicillin 500mg DHG', 'Amoxicillin', 'Viên nang', '500mg', 'Viên',
     'Amoxicillin trihydrate 500mg',
@@ -697,7 +666,7 @@ INSERT INTO products (category_id, manufacturer_id, product_name, generic_name, 
     'Buồn nôn, tiêu chảy, phát ban da',
     'Người lớn: 500mg x 3 lần/ngày. Uống sau ăn.',
     'Nơi khô mát, tránh ánh sáng. Nhiệt độ dưới 30°C',
-    TRUE, FALSE, 45000, 'amoxicillin.jpg'),
+    FALSE, TRUE, 45000, 0.00, 'amoxicillin.jpg'),
 
 (7, 1, 'Paracetamol 500mg', 'Paracetamol', 'Viên nén', '500mg', 'Viên',
     'Paracetamol 500mg',
@@ -706,7 +675,7 @@ INSERT INTO products (category_id, manufacturer_id, product_name, generic_name, 
     'Hiếm gặp: Phát ban, rối loạn tiêu hóa',
     'Người lớn: 1-2 viên x 3-4 lần/ngày. Không quá 4g/ngày.',
     'Bảo quản nơi khô, tránh ánh sáng',
-    FALSE, TRUE, 15000, 'paracetamol.jpg'),
+    FALSE, TRUE, 15000, 0.00, 'paracetamol.jpg'),
 
 (7, 3, 'Aspirin 100mg', 'Aspirin', 'Viên nén bao phim', '100mg', 'Viên',
     'Acid acetylsalicylic 100mg',
@@ -715,7 +684,7 @@ INSERT INTO products (category_id, manufacturer_id, product_name, generic_name, 
     'Đau dạ dày, buồn nôn',
     '1 viên/ngày, uống sau ăn',
     'Nơi khô mát, nhiệt độ dưới 25°C',
-    TRUE, FALSE, 35000, 'aspirin.jpg'),
+    TRUE, FALSE, 35000, 0.00, 'aspirin.jpg'),
 
 (8, 5, 'Vitamin C 1000mg Abbott', 'Ascorbic Acid', 'Viên sủi', '1000mg', 'Viên',
     'Ascorbic Acid 1000mg',
@@ -724,7 +693,7 @@ INSERT INTO products (category_id, manufacturer_id, product_name, generic_name, 
     'Hiếm gặp: Tiêu chảy khi dùng liều cao',
     '1 viên/ngày, hòa tan vào 200ml nước',
     'Nơi khô mát, tránh ẩm',
-    FALSE, TRUE, 120000, 'vitamin-c.jpg'),
+    FALSE, TRUE, 120000, 0.00, 'vitamin-c.jpg'),
 
 (8, 5, 'Vitamin D3 1000IU', 'Cholecalciferol', 'Viên nang mềm', '1000IU', 'Viên',
     'Cholecalciferol 1000IU',
@@ -733,7 +702,7 @@ INSERT INTO products (category_id, manufacturer_id, product_name, generic_name, 
     'Hiếm gặp: Táo bón, buồn nôn',
     '1 viên/ngày, uống cùng bữa ăn có dầu mỡ',
     'Bảo quản nơi khô, tránh ánh sáng',
-    FALSE, TRUE, 180000, 'vitamin-d3.jpg'),
+    FALSE, TRUE, 180000, 0.00, 'vitamin-d3.jpg'),
 
 (2, 2, 'Oresol 245', 'Oresol', 'Gói bột pha', '245mg', 'Gói',
     'Glucose, Natri clorid, Kali clorid, Natri citrat',
@@ -742,7 +711,7 @@ INSERT INTO products (category_id, manufacturer_id, product_name, generic_name, 
     'Không',
     'Pha 1 gói vào 200ml nước sôi để nguội. Uống ngay sau pha.',
     'Nơi khô mát',
-    FALSE, TRUE, 5000, 'oresol.jpg'),
+    FALSE, TRUE, 5000, 0.00, 'oresol.jpg'),
 
 (1, 4, 'Metformin 500mg', 'Metformin', 'Viên nén bao phim', '500mg', 'Viên',
     'Metformin HCl 500mg',
@@ -751,7 +720,7 @@ INSERT INTO products (category_id, manufacturer_id, product_name, generic_name, 
     'Buồn nôn, tiêu chảy, đầy hơi',
     '500mg x 2-3 lần/ngày, uống cùng bữa ăn',
     'Nơi khô mát, tránh ánh sáng',
-    TRUE, FALSE, 55000, 'metformin.jpg'),
+    TRUE, FALSE, 55000, 0.00, 'metformin.jpg'),
 
 (1, 6, 'Lipitor 20mg', 'Atorvastatin', 'Viên nén bao phim', '20mg', 'Viên',
     'Atorvastatin 20mg',
@@ -760,7 +729,7 @@ INSERT INTO products (category_id, manufacturer_id, product_name, generic_name, 
     'Đau cơ, tăng men gan',
     '1 viên/ngày, có thể uống bất kỳ lúc nào',
     'Nhiệt độ phòng (15-30°C)',
-    TRUE, FALSE, 280000, 'lipitor.jpg'),
+    TRUE, FALSE, 280000, 0.00, 'lipitor.jpg'),
 
 (3, 5, 'Ensure Gold 850g', 'Ensure', 'Bột pha sữa', '850g', 'Hộp',
     'Protein, Vitamin, Khoáng chất, HMB',
@@ -769,7 +738,7 @@ INSERT INTO products (category_id, manufacturer_id, product_name, generic_name, 
     'Hiếm gặp: Đầy hơi, khó tiêu',
     'Pha 6 muỗng (51g) vào 190ml nước ấm. 2 lần/ngày.',
     'Nơi khô mát, sau khi mở nắp dùng trong 3 tuần',
-    FALSE, TRUE, 680000, 'ensure-gold.jpg'),
+    FALSE, TRUE, 680000, 0.00, 'ensure-gold.jpg'),
 
 (5, 5, 'Nhiệt kế điện tử Omron', 'Thermometer', 'Thiết bị', 'N/A', 'Cái',
     'N/A',
@@ -778,7 +747,132 @@ INSERT INTO products (category_id, manufacturer_id, product_name, generic_name, 
     'Không',
     'Đặt đầu đo dưới lưỡi/nách, đợi tín hiệu beep',
     'Nơi khô, tránh va đập mạnh',
-    FALSE, TRUE, 150000, 'thermometer.jpg');
+    FALSE, TRUE, 150000, 0.00, 'thermometer.jpg'),
+
+(7, 1, 'Siro Ho Prospan 100ml', 'Hedera Helix', 'Siro', '100ml', 'Chai',
+    'Cao khô lá thường xuân 700mg/100ml',
+    'Điều trị ho có đờm, viêm phế quản cấp và mãn tính',
+    'Mẫn cảm với thành phần của thuốc',
+    'Buồn nôn, tiêu chảy',
+    'Trẻ em 2.5ml-5ml x 3 lần/ngày',
+    'Nơi khô mát, dưới 30°C',
+    FALSE, TRUE, 125000, 0.00, 'prospan.jpg'),
+
+(2, 2, 'Salonpas Gel 30g', 'Salonpas', 'Gel bôi', '30g', 'Tuýp',
+    'Methyl Salicylate, L-Menthol',
+    'Giảm đau cơ, đau khớp, đau lưng',
+    'Vết thương hở, mắt, niêm mạc',
+    'Kích ứng da nhẹ',
+    'Bôi 3-4 lần/ngày vào vùng bị đau',
+    'Nơi khô ráo, tránh ánh sáng trực tiếp',
+    FALSE, TRUE, 45000, 0.00, 'salonpas.jpg'),
+
+(8, 5, 'Blackmores Omega Daily 60 viên', 'Omega-3', 'Viên nang mềm', '1000mg', 'Viên',
+    'Dầu cá 1000mg (EPA 180mg, DHA 120mg)',
+    'Bổ sung Omega-3 cho tim mạch, não bộ',
+    'Người dị ứng hải sản',
+    'Rối loạn tiêu hóa nhẹ',
+    '1 viên/ngày sau bữa ăn',
+    'Nơi khô mát, dưới 30°C',
+    FALSE, TRUE, 420000, 0.00, 'blackmores-omega.jpg'),
+
+(8, 5, 'Nature Made Vitamin E 400IU', 'Vitamin E', 'Viên nang mềm', '400IU', 'Viên',
+    'dl-alpha-Tocopheryl Acetate 400IU',
+    'Chống oxy hóa, làm đẹp da, tốt cho tim mạch',
+    'Người chuẩn bị phẫu thuật',
+    'Rối loạn tiêu hóa',
+    '1 viên/ngày sau bữa ăn',
+    'Nơi khô mát, tránh ánh sáng',
+    FALSE, TRUE, 350000, 0.00, 'vitamin-e.jpg'),
+
+(3, 2, 'Sữa Glucerna 850g', 'Glucerna', 'Bột pha sữa', '850g', 'Hộp',
+    'Protein, Chất xơ, Vitamin, Khoáng chất',
+    'Dinh dưỡng cho người đái tháo đường',
+    'Trẻ em dưới 13 tuổi (trừ khi có chỉ định)',
+    'Đầy hơi nếu uống quá nhanh',
+    'Pha 5 muỗng vào 200ml nước ấm',
+    'Nơi khô mát, dùng trong 3 tuần sau mở nắp',
+    FALSE, TRUE, 580000, 0.00, 'glucerna.jpg'),
+
+(4, 1, 'Kem chống nắng Sunplay SPF50+ 30g', 'Sunplay', 'Kem bôi', '30g', 'Tuýp',
+    'Zinc Oxide, Titanium Dioxide',
+    'Chống nắng phổ rộng UVA/UVB',
+    'Người dị ứng với kẽm',
+    'Kích ứng da nếu có vết thương hở',
+    'Thoa trước khi ra nắng 20 phút',
+    'Nơi khô mát, tránh ánh sáng',
+    FALSE, TRUE, 180000, 0.00, 'sunplay.jpg'),
+
+(2, 1, 'Dầu gió Trúc Lâm 5ml', 'Dầu gió', 'Dầu', '5ml', 'Lọ',
+    'Bạc hà, khuynh diệp, long não',
+    'Xoa bóp giảm đau đầu, say xe, muỗi đốt',
+    'Trẻ em dưới 2 tuổi',
+    'Nóng rát nếu bôi quá nhiều',
+    'Xoa trực tiếp vào vùng bị đau',
+    'Nơi khô ráo, đậy nắp kín',
+    FALSE, TRUE, 12000, 15.00, 'dau-gio.jpg'), -- Giảm 15%
+
+(7, 3, 'Hapacol 325mg (100 viên)', 'Paracetamol', 'Viên nén', '325mg', 'Viên',
+    'Paracetamol 325mg',
+    'Giảm đau, hạ sốt cho trẻ em',
+    'Người thiếu hụt G6PD',
+    'Phát ban, buồn nôn',
+    '10-15mg/kg cân nặng mỗi 4-6 giờ',
+    'Nơi khô mát, tránh ánh sáng',
+    FALSE, TRUE, 28000, 20.00, 'hapacol.jpg'), -- Giảm 20%
+
+(8, 5, 'Centrum Silver 100 viên', 'Multivitamin', 'Viên nén bao phim', 'N/A', 'Viên',
+    'Vitamin A, C, D, E, B-complex, Khoáng chất',
+    'Vitamin tổng hợp cho người trên 50 tuổi',
+    'Người thừa Vitamin A',
+    'Thay đổi màu nước tiểu (vô hại)',
+    '1 viên/ngày sau bữa ăn',
+    'Nơi khô mát, tránh ẩm',
+    FALSE, TRUE, 680000, 0.00, 'centrum.jpg'),
+
+(2, 1, 'Xịt họng Tantum Verde 30ml', 'Benzydamine', 'Dung dịch xịt', '30ml', 'Chai',
+    'Benzydamine HCl 1.5mg/ml',
+    'Giảm đau, kháng viêm họng, miệng',
+    'Trẻ em dưới 6 tuổi',
+    'Tê đầu lưỡi tạm thời',
+    'Xịt trực tiếp vào họng 2-6 lần/ngày',
+    'Nơi khô mát, dưới 30°C',
+    FALSE, TRUE, 95000, 0.00, 'tantum.jpg');
+
+-- 10.6 Hoạt chất & Thành phần sản phẩm
+INSERT INTO ingredients (ingredient_name, description) VALUES
+('Amoxicillin', 'Kháng sinh nhóm penicillin'),
+('Paracetamol', 'Thuốc giảm đau, hạ sốt'),
+('Aspirin', 'Thuốc chống viêm không steroid (NSAID)'),
+('Vitamin C', 'Chất chống oxy hóa, tăng cường đề kháng'),
+('Vitamin D3', 'Hỗ trợ hấp thụ Canxi'),
+('Glucose', 'Đường cung cấp năng lượng'),
+('Natri Clorid', 'Muối điện giải'),
+('Kali Clorid', 'Muối điện giải'),
+('Metformin HCl', 'Thuốc điều trị tiểu đường type 2'),
+('Atorvastatin', 'Thuốc hạ mỡ máu nhóm statin'),
+('Zinc Oxide', 'Thành phần chống nắng vật lý'),
+('Titanium Dioxide', 'Thành phần chống nắng vật lý'),
+('Menthol', 'Tinh dầu bạc hà làm mát'),
+('Eucalyptol', 'Tinh dầu khuynh diệp'),
+('Methyl Salicylate', 'Hoạt chất giảm đau kháng viêm');
+
+INSERT INTO product_ingredients (product_id, ingredient_id, amount) VALUES
+(1, 1, '500mg'),
+(2, 2, '500mg'),
+(3, 3, '100mg'),
+(4, 4, '1000mg'),
+(5, 5, '1000IU'),
+(6, 6, '135mg'),
+(6, 7, '520mg'),
+(6, 8, '300mg'),
+(7, 9, '500mg'),
+(8, 10, '20mg'),
+(16, 11, '10%'),
+(16, 12, '5%'),
+(17, 13, '1.5ml'),
+(17, 14, '0.5ml'),
+(18, 2, '325mg');
 
 -- 10.7 Nhà cung cấp
 INSERT INTO suppliers (supplier_name, contact_person, phone, email, address, tax_code) VALUES
@@ -912,3 +1006,165 @@ INSERT INTO reviews (product_id, user_id, order_id, rating, comment, is_verified
 (4, 4, 1, 4, 'Vitamin C sủi bọt, dễ uống. Hơi ngọt.', TRUE, TRUE),
 (1, 5, 2, 5, 'Kháng sinh hiệu quả, viêm họng hết sau 3 ngày.', TRUE, TRUE);
 
+-- =====================================================
+-- 11. HỆ THỐNG CHAT & TƯ VẤN (Tích hợp từ chat_schema.sql)
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS consultation_requests (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    current_doctor_id INT NULL,
+    status ENUM('pending', 'accepted', 'rejected', 'completed', 'cancelled') DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (customer_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (current_doctor_id) REFERENCES users(user_id) ON DELETE SET NULL,
+    INDEX idx_status (status),
+    INDEX idx_doctor (current_doctor_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS conversations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    doctor_id INT NOT NULL,
+    customer_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (doctor_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (customer_id) REFERENCES users(user_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS messages (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    conversation_id INT NOT NULL,
+    sender_id INT NOT NULL,
+    content TEXT NOT NULL,
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (sender_id) REFERENCES users(user_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =====================================================
+-- 12. QUÊN MẬT KHẨU (Tích hợp từ 4.password_resets.sql)
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS password_resets (
+    email VARCHAR(255) NOT NULL,
+    otp_code VARCHAR(10) NOT NULL,
+    expires_at DATETIME NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX (email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- =====================================================
+-- 13. NHẬT KÝ EMAIL (Tích hợp từ 11.updates.sql)
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS email_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NULL,
+    recipient_email VARCHAR(255) NOT NULL,
+    subject VARCHAR(255) NOT NULL,
+    type VARCHAR(50) NOT NULL,
+    status ENUM('sent', 'failed', 'opened') DEFAULT 'sent',
+    sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    error_message TEXT NULL,
+    tracking_id VARCHAR(100) UNIQUE,
+    FOREIGN KEY (order_id) REFERENCES orders(order_id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- =====================================================
+-- 15. LÔ HÀNG BỔ SUNG CHO CÁC SẢN PHẨM MỚI (FEFO)
+-- =====================================================
+
+INSERT INTO batches (product_id, receipt_id, batch_number, manufacture_date, expiry_date, 
+    quantity_received, quantity_remaining, purchase_price, selling_price, storage_location) VALUES
+(11, 1, 'PRO-2026-01', '2026-01-15', '2028-01-15', 200, 200, 100000, 125000, 'Kệ B1-01'),
+(12, 1, 'SAL-2026-02', '2026-02-01', '2028-02-01', 300, 300, 35000, 45000, 'Kệ C2-01'),
+(13, 2, 'BLK-2026-01', '2026-01-20', '2027-12-20', 150, 150, 320000, 420000, 'Kệ D1-01'),
+(14, 2, 'VIT-2026-01', '2026-01-10', '2027-12-10', 100, 100, 280000, 350000, 'Kệ D1-02'),
+(15, 2, 'GLU-2026-02', '2026-02-15', '2027-08-15', 80, 80, 520000, 580000, 'Kệ E1-01'),
+(16, 1, 'SUN-2026-03', '2026-03-01', '2028-03-01', 120, 120, 140000, 180000, 'Kệ F1-01'),
+(17, 1, 'TRUC-2026-01', '2026-01-10', '2029-01-10', 500, 500, 8000, 12000, 'Kệ G1-01'),
+(18, 2, 'HAPA-2026-03', '2026-03-10', '2028-03-10', 1000, 1000, 20000, 28000, 'Kệ B2-01'),
+(19, 2, 'CEN-2026-02', '2026-02-01', '2028-02-01', 60, 60, 550000, 680000, 'Kệ D1-03'),
+(20, 1, 'TAN-2026-03', '2026-03-15', '2028-03-15', 100, 100, 75000, 95000, 'Kệ C3-01');
+
+-- =====================================================
+-- 16. LOGIC NÂNG CAO (TRIGGERS, INDEXES, EVENTS)
+-- =====================================================
+
+-- Tăng tốc truy vấn
+CREATE INDEX idx_products_active ON products(is_active);
+CREATE INDEX idx_products_category_active ON products(category_id, is_active);
+CREATE INDEX idx_batches_product_expiry ON batches(product_id, expiry_date);
+CREATE INDEX idx_batches_status_expiry ON batches(status, expiry_date);
+CREATE INDEX idx_orders_user_status ON orders(user_id, status);
+CREATE INDEX idx_orders_prescription ON orders(has_prescription, prescription_verified, status);
+CREATE INDEX idx_order_details_product ON order_details(product_id);
+
+DELIMITER $$
+
+-- Trigger: Hoàn kho khi đơn hàng bị hủy
+DROP TRIGGER IF EXISTS after_order_status_cancel$$
+CREATE TRIGGER after_order_status_cancel
+AFTER UPDATE ON orders
+FOR EACH ROW
+BEGIN
+    IF OLD.status != 'cancelled' AND NEW.status = 'cancelled' THEN
+        UPDATE batches b
+        JOIN order_details od ON b.batch_id = od.batch_id
+        SET b.quantity_remaining = b.quantity_remaining + od.quantity
+        WHERE od.order_id = NEW.order_id;
+    END IF;
+END$$
+
+-- Trigger: Cập nhật trạng thái lô hàng trước khi chèn
+DROP TRIGGER IF EXISTS before_batch_insert$$
+CREATE TRIGGER before_batch_insert
+BEFORE INSERT ON batches
+FOR EACH ROW
+BEGIN
+    IF NEW.expiry_date < CURDATE() THEN
+        SET NEW.status = 'expired';
+    ELSEIF DATEDIFF(NEW.expiry_date, CURDATE()) <= NEW.expiry_alert_days THEN
+        SET NEW.status = 'near_expiry';
+    ELSE
+        SET NEW.status = 'active';
+    END IF;
+END$$
+
+-- Trigger: Nhật ký thay đổi giá sản phẩm
+DROP TRIGGER IF EXISTS after_product_price_update$$
+CREATE TRIGGER after_product_price_update
+AFTER UPDATE ON products
+FOR EACH ROW
+BEGIN
+    IF OLD.price != NEW.price THEN
+        INSERT INTO price_history (product_id, old_price, new_price)
+        VALUES (NEW.product_id, OLD.price, NEW.price);
+    END IF;
+END$$
+
+DELIMITER ;
+
+-- Event: Cập nhật trạng thái hạn dùng hàng ngày
+SET GLOBAL event_scheduler = ON;
+DROP EVENT IF EXISTS update_batch_status_daily;
+DELIMITER $$
+CREATE EVENT update_batch_status_daily
+ON SCHEDULE EVERY 1 DAY
+STARTS (CURRENT_DATE + INTERVAL 1 DAY)
+DO
+BEGIN
+    UPDATE batches SET status = 'expired'
+    WHERE expiry_date < CURDATE() AND status != 'expired';
+    
+    UPDATE batches SET status = 'near_expiry'
+    WHERE expiry_date >= CURDATE() AND DATEDIFF(expiry_date, CURDATE()) <= expiry_alert_days AND status = 'active';
+END$$
+DELIMITER ;
+
+-- Bật lại kiểm tra khóa ngoại
+SET FOREIGN_KEY_CHECKS = 1;
+
+UPDATE users SET password_hash = '$2y$10$AulLUbZUBZ1dHhPNgAUZQehkVF.5mHhB7aOH.z/iIZwQXs6CdeewG';

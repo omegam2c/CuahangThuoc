@@ -1,7 +1,7 @@
 <?php
 require_once 'config/database.php';
 class BaseModel {
-    protected $db;
+    public $db;
 
     public function __construct() {
         try {

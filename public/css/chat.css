@@ -1,0 +1,262 @@
+/* public/css/chat.css */
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: 'Be Vietnam Pro', 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background-color: #f0f2f5;
+}
+
+.chat-container {
+    display: flex;
+    height: 100vh;
+    max-width: 1400px;
+    margin: 0 auto;
+    background-color: #fff;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+/* Sidebar danh sách trò chuyện */
+.chat-sidebar {
+    width: 360px;
+    border-right: 1px solid #e0e0e0;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-header {
+    padding: 15px 20px;
+    border-bottom: 1px solid #e0e0e0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.sidebar-header h2 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 700;
+}
+
+.conversation-list {
+    flex: 1;
+    overflow-y: auto;
+}
+
+.conversation-item {
+    display: flex;
+    padding: 10px 20px;
+    cursor: pointer;
+    align-items: center;
+    transition: background-color 0.2s;
+}
+
+.conversation-item:hover, .conversation-item.active {
+    background-color: #f0f2f5;
+}
+
+.avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background-color: #0084ff;
+    color: white;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 20px;
+    font-weight: bold;
+    margin-right: 15px;
+}
+
+.conversation-info h3 {
+    margin: 0 0 5px;
+    font-size: 15px;
+    color: #050505;
+}
+
+.conversation-info p {
+    margin: 0;
+    font-size: 13px;
+    color: #65676b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+
+/* Khu vực tin nhắn chính */
+.chat-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background-color: #fff;
+}
+
+.chat-header {
+    background: #fff;
+    padding: 15px 20px;
+    border-bottom: 1px solid #e0e0e0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    z-index: 2;
+}
+
+.header-user-info {
+    display: flex;
+    align-items: center;
+}
+
+.header-user-info h3 {
+    margin: 0;
+    font-size: 17px;
+}
+
+.header-actions button {
+    background-color: transparent;
+    border: none;
+    color: #0084ff;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 50%;
+    transition: background-color 0.2s;
+}
+
+.header-actions button:hover {
+    background-color: #ebf5ff;
+}
+
+/* Form chat */
+.chat-messages {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    background-color: #ffffff;
+}
+
+.message-row {
+    display: flex;
+    margin-bottom: 12px;
+}
+
+.message-row.sent {
+    justify-content: flex-end;
+}
+
+.message-bubble {
+    max-width: 60%;
+    padding: 8px 14px;
+    border-radius: 18px;
+    font-size: 15px;
+    line-height: 1.4;
+    word-wrap: break-word;
+}
+
+.message-row.received .message-bubble {
+    background-color: #e4e6eb;
+    color: #050505;
+    border-bottom-left-radius: 4px;
+}
+
+.message-row.sent .message-bubble {
+    background-color: #0084ff;
+    color: white;
+    border-bottom-right-radius: 4px;
+}
+
+.chat-input-area {
+    padding: 15px 20px;
+    border-top: 1px solid #e0e0e0;
+    display: flex;
+    align-items: center;
+}
+
+.chat-input {
+    flex: 1;
+    border: none;
+    background-color: #f0f2f5;
+    border-radius: 20px;
+    padding: 10px 15px;
+    font-size: 15px;
+    outline: none;
+}
+
+.send-btn {
+    background: none;
+    border: none;
+    color: #0084ff;
+    font-weight: bold;
+    cursor: pointer;
+    font-size: 15px;
+    margin-left: 10px;
+    padding: 10px;
+}
+
+.send-btn:hover {
+    background-color: #ebf5ff;
+    border-radius: 50%;
+}
+
+/* Module Video Call Modal */
+#videoCallModal {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.85);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+}
+
+.video-container {
+    position: relative;
+    width: 80%;
+    max-width: 800px;
+    background: #000;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+#remoteVideo {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+#localVideo {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    width: 150px;
+    border: 2px solid white;
+    border-radius: 8px;
+    background: #333;
+}
+
+.call-controls {
+    margin-top: 20px;
+    display: flex;
+    gap: 20px;
+}
+
+.end-call-btn {
+    background-color: #e41e3f;
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 24px;
+    font-size: 16px;
+    cursor: pointer;
+    font-weight: 600;
+}
+.end-call-btn:hover {
+    background-color: #c91835;
+}

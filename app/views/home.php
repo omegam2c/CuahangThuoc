@@ -1,5 +1,5 @@
 <?php
-// home.php - Trang chủ Long Châu
+// home.php - Trang chủ Nhà thuốc 1985
 // Giả sử $featuredProducts, $categories được truyền từ controller
 ?>
 
@@ -15,8 +15,8 @@
         <h1>Chăm sóc sức khỏe<br><strong>toàn diện</strong> mỗi ngày</h1>
         <p>Hơn 10,000+ sản phẩm chính hãng từ các thương hiệu uy tín toàn cầu</p>
         <div class="hero-actions">
-          <a href="/products" class="btn btn-primary">Mua ngay</a>
-          <a href="/prescription" class="btn btn-outline">Tư vấn thuốc</a>
+          <a href="<?= BASE_URL ?>products" class="btn btn-premium">Mua ngay</a>
+          <a href="<?= BASE_URL ?>prescription" class="btn btn-outline">Tư vấn thuốc</a>
         </div>
       </div>
       <div class="hero-badge">
@@ -33,7 +33,7 @@
         <h1>Giảm đến <strong>40%</strong><br>vitamin & thực phẩm chức năng</h1>
         <p>Chương trình khuyến mãi giới hạn — chỉ trong tuần này</p>
         <div class="hero-actions">
-          <a href="/products?category=vitamins" class="btn btn-primary">Xem ưu đãi</a>
+          <a href="<?= BASE_URL ?>products?category=8" class="btn btn-primary">Xem ưu đãi</a>
         </div>
       </div>
     </div>
@@ -44,7 +44,7 @@
         <h1>Upload đơn thuốc —<br>nhận hàng <strong>tận nhà</strong></h1>
         <p>Giao nhanh 2 giờ trong nội thành TP.HCM và Hà Nội</p>
         <div class="hero-actions">
-          <a href="/prescription/upload" class="btn btn-primary">Upload đơn thuốc</a>
+          <a href="<?= BASE_URL ?>prescription/upload" class="btn btn-primary">Upload đơn thuốc</a>
         </div>
       </div>
     </div>
@@ -64,7 +64,7 @@
 </section>
 
 <!-- ===== TRUST BAR ===== -->
-<section class="trust-bar">
+<section class="trust-bar container animate-fade-up" style="margin-top: -50px; position: relative; z-index: 10; border-radius: var(--radius-lg); box-shadow: 0 10px 30px rgba(0,0,0,0.1);">
   <div class="container">
     <div class="trust-grid">
       <div class="trust-item">
@@ -104,7 +104,7 @@
   <div class="container">
     <div class="section-header">
       <h2 class="section-title">Danh mục sản phẩm</h2>
-      <a href="/products" class="see-all">Xem tất cả →</a>
+      <a href="<?= BASE_URL ?>products" class="see-all">Xem tất cả →</a>
     </div>
     <div class="categories-grid">
       <?php if (!empty($categories)): ?>
@@ -119,7 +119,7 @@
           ];
           $catInfo = $icons[$cat['category_name']] ?? ['icon' => '📦', 'class' => 'cat-gray'];
         ?>
-        <a href="/products?category=<?= $cat['category_id'] ?>" class="category-card <?= $catInfo['class'] ?>">
+        <a href="<?= BASE_URL ?>products?category=<?= $cat['category_id'] ?>" class="category-card glass-card <?= $catInfo['class'] ?>">
           <div class="cat-icon"><?= $catInfo['icon'] ?></div>
           <span><?= htmlspecialchars($cat['category_name']) ?></span>
         </a>
@@ -138,7 +138,7 @@
         <div class="promo-strip-text">
           <h3>Upload đơn thuốc</h3>
           <p>Dược sĩ tư vấn & giao thuốc tận nhà</p>
-          <a href="/prescription/upload" class="btn btn-white-outline">Upload ngay</a>
+          <a href="<?= BASE_URL ?>prescription/upload" class="btn btn-white-outline">Upload ngay</a>
         </div>
         <div class="promo-strip-img">📋</div>
       </div>
@@ -147,7 +147,7 @@
         <div class="promo-strip-text">
           <h3>Tư vấn sức khỏe</h3>
           <p>Chat trực tiếp với dược sĩ chuyên nghiệp</p>
-          <a href="/consult" class="btn btn-white-outline">Tư vấn miễn phí</a>
+          <a href="<?= BASE_URL ?>consult" class="btn btn-white-outline">Tư vấn miễn phí</a>
         </div>
         <div class="promo-strip-img">🩺</div>
       </div>
@@ -176,7 +176,7 @@
       ?>
       <div class="product-card" data-id="<?= $p['product_id'] ?>">
         <?php if (!empty($p['badge'])): ?>
-          <span class="product-badge <?= str_contains($p['badge'],'Sale') ? 'badge-sale' : 'badge-hot' ?>">
+          <span class="product-badge <?= (strpos((string)$p['badge'], 'Sale') !== false) ? 'badge-sale' : 'badge-hot' ?>">
             <?= htmlspecialchars($p['badge']) ?>
           </span>
         <?php endif; ?>
@@ -185,20 +185,39 @@
         <?php endif; ?>
 
         <div class="product-img-wrap">
-          <img src="/Pharmacy/public/img/products/<?= htmlspecialchars($p['image_url'] ?? 'placeholder.png') ?>"
+          <?php
+            $rawImage = trim((string)($p['image_url'] ?? ''));
+            $isRemoteImage = preg_match('#^https?://#i', $rawImage) === 1;
+            $imageSrc = $isRemoteImage
+              ? $rawImage
+              : (BASE_URL . 'public/img/products/' . htmlspecialchars($rawImage !== '' ? $rawImage : 'placeholder.png'));
+          ?>
+          <img src="<?= $imageSrc ?>"
                alt="<?= htmlspecialchars($p['product_name']) ?>"
-               onerror="this.src='/public/img/placeholder.png'">
+               onerror="this.onerror=null;this.src='https://placehold.co/600x600/f3f4f6/374151?text=No+Image';">
           <div class="product-actions-hover">
-            <button class="btn-quick-add" onclick="addToCart(<?= $p['product_id'] ?>)">
-              🛒 Thêm vào giỏ
-            </button>
+            <?php if (($p['stock_quantity'] ?? 0) > 0): ?>
+              <button class="btn-quick-add" onclick="addToCart(<?= $p['product_id'] ?>)">
+                🛒 Thêm vào giỏ
+              </button>
+            <?php else: ?>
+              <button class="btn-quick-add" disabled style="background: #999; cursor: not-allowed; border-color: #999;">
+                Hết hàng
+              </button>
+            <?php endif; ?>
           </div>
         </div>
+
+        <?php if (($p['stock_quantity'] ?? 0) <= 0): ?>
+          <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.4); z-index: 5; pointer-events: none; display: flex; align-items: center; justify-content: center;">
+             <span style="background: rgba(0,0,0,0.6); color: white; padding: 5px 15px; border-radius: 20px; font-weight: bold; transform: rotate(-15deg); border: 2px solid white;">HẾT HÀNG</span>
+          </div>
+        <?php endif; ?>
 
         <div class="product-info">
           <span class="product-brand"><?= htmlspecialchars($p['brand'] ?? 'N/A') ?></span>
           <h3 class="product-name">
-            <a href="/product/<?= $p['product_id'] ?>"><?= htmlspecialchars($p['product_name']) ?></a>
+            <a href="<?= BASE_URL ?>product/<?= $p['product_id'] ?>"><?= htmlspecialchars($p['product_name']) ?></a>
           </h3>
           <div class="product-rating">
             <span class="stars"><?= str_repeat('★', floor($p['rating'] ?? 4.5)) ?></span>
@@ -218,23 +237,127 @@
     <!-- Tab Khuyến mãi -->
     <div class="products-grid tab-content" id="tab-sale" style="display: none;">
       <?php foreach ($saleProducts as $p): 
-        $discount = round((1 - $p['current_price']/$p['old_price'])*100);
+        $discount = ($p['old_price'] && $p['old_price'] > $p['current_price']) 
+                    ? round((1 - $p['current_price']/$p['old_price'])*100) : 0;
       ?>
-      <!-- Same structure as above -->
       <div class="product-card" data-id="<?= $p['product_id'] ?>">
-        <span class="product-badge badge-sale"><?= htmlspecialchars($p['badge']) ?></span>
-        <span class="product-discount">-<?= $discount ?>%</span>
-        <!-- ... rest of product card ... -->
+        <?php if (!empty($p['badge'])): ?>
+          <span class="product-badge badge-sale">
+            <?= htmlspecialchars($p['badge']) ?>
+          </span>
+        <?php endif; ?>
+        <?php if ($discount > 0): ?>
+          <span class="product-discount">-<?= $discount ?>%</span>
+        <?php endif; ?>
+
+        <div class="product-img-wrap">
+          <?php
+            $rawImage = trim((string)($p['image_url'] ?? ''));
+            $isRemoteImage = preg_match('#^https?://#i', $rawImage) === 1;
+            $imageSrc = $isRemoteImage
+              ? $rawImage
+              : (BASE_URL . 'public/img/products/' . htmlspecialchars($rawImage !== '' ? $rawImage : 'placeholder.png'));
+          ?>
+          <img src="<?= $imageSrc ?>"
+               alt="<?= htmlspecialchars($p['product_name']) ?>"
+               onerror="this.onerror=null;this.src='https://placehold.co/600x600/f3f4f6/374151?text=No+Image';">
+          <div class="product-actions-hover">
+            <?php if (($p['stock_quantity'] ?? 0) > 0): ?>
+              <button class="btn-quick-add" onclick="addToCart(<?= $p['product_id'] ?>)">
+                🛒 Thêm vào giỏ
+              </button>
+            <?php else: ?>
+              <button class="btn-quick-add" disabled style="background: #999; cursor: not-allowed; border-color: #999;">
+                Hết hàng
+              </button>
+            <?php endif; ?>
+          </div>
+        </div>
+
+        <?php if (($p['stock_quantity'] ?? 0) <= 0): ?>
+          <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.4); z-index: 5; pointer-events: none; display: flex; align-items: center; justify-content: center;">
+             <span style="background: rgba(0,0,0,0.6); color: white; padding: 5px 15px; border-radius: 20px; font-weight: bold; transform: rotate(-15deg); border: 2px solid white;">HẾT HÀNG</span>
+          </div>
+        <?php endif; ?>
+
+        <div class="product-info">
+          <span class="product-brand"><?= htmlspecialchars($p['brand'] ?? 'N/A') ?></span>
+          <h3 class="product-name">
+            <a href="<?= BASE_URL ?>product/<?= $p['product_id'] ?>"><?= htmlspecialchars($p['product_name']) ?></a>
+          </h3>
+          <div class="product-rating">
+            <span class="stars"><?= str_repeat('★', floor($p['rating'] ?? 4.5)) ?></span>
+            <span class="review-count">(<?= number_format($p['reviews'] ?? 0) ?>)</span>
+          </div>
+          <div class="product-price-row">
+            <span class="price-current"><?= number_format($p['current_price']) ?>đ</span>
+            <?php if ($p['old_price'] && $p['old_price'] > $p['current_price']): ?>
+              <span class="price-old"><?= number_format($p['old_price']) ?>đ</span>
+            <?php endif; ?>
+          </div>
+        </div>
       </div>
       <?php endforeach; ?>
     </div>
 
     <!-- Tab Mới nhất -->
     <div class="products-grid tab-content" id="tab-new" style="display: none;">
-      <?php foreach ($newProducts as $p): ?>
+      <?php foreach ($newProducts as $p): 
+        $discount = ($p['old_price'] && $p['old_price'] > $p['current_price']) 
+                    ? round((1 - $p['current_price']/$p['old_price'])*100) : 0;
+      ?>
       <div class="product-card" data-id="<?= $p['product_id'] ?>">
         <span class="product-badge badge-new">Mới</span>
-        <!-- ... rest of product card ... -->
+        <?php if ($discount > 0): ?>
+          <span class="product-discount">-<?= $discount ?>%</span>
+        <?php endif; ?>
+
+        <div class="product-img-wrap">
+          <?php
+            $rawImage = trim((string)($p['image_url'] ?? ''));
+            $isRemoteImage = preg_match('#^https?://#i', $rawImage) === 1;
+            $imageSrc = $isRemoteImage
+              ? $rawImage
+              : (BASE_URL . 'public/img/products/' . htmlspecialchars($rawImage !== '' ? $rawImage : 'placeholder.png'));
+          ?>
+          <img src="<?= $imageSrc ?>"
+               alt="<?= htmlspecialchars($p['product_name']) ?>"
+               onerror="this.onerror=null;this.src='https://placehold.co/600x600/f3f4f6/374151?text=No+Image';">
+          <div class="product-actions-hover">
+            <?php if (($p['stock_quantity'] ?? 0) > 0): ?>
+              <button class="btn-quick-add" onclick="addToCart(<?= $p['product_id'] ?>)">
+                🛒 Thêm vào giỏ
+              </button>
+            <?php else: ?>
+              <button class="btn-quick-add" disabled style="background: #999; cursor: not-allowed; border-color: #999;">
+                Hết hàng
+              </button>
+            <?php endif; ?>
+          </div>
+        </div>
+
+        <?php if (($p['stock_quantity'] ?? 0) <= 0): ?>
+          <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.4); z-index: 5; pointer-events: none; display: flex; align-items: center; justify-content: center;">
+             <span style="background: rgba(0,0,0,0.6); color: white; padding: 5px 15px; border-radius: 20px; font-weight: bold; transform: rotate(-15deg); border: 2px solid white;">HẾT HÀNG</span>
+          </div>
+        <?php endif; ?>
+
+        <div class="product-info">
+          <span class="product-brand"><?= htmlspecialchars($p['brand'] ?? 'N/A') ?></span>
+          <h3 class="product-name">
+            <a href="<?= BASE_URL ?>product/<?= $p['product_id'] ?>"><?= htmlspecialchars($p['product_name']) ?></a>
+          </h3>
+          <div class="product-rating">
+            <span class="stars"><?= str_repeat('★', floor($p['rating'] ?? 4.5)) ?></span>
+            <span class="review-count">(<?= number_format($p['reviews'] ?? 0) ?>)</span>
+          </div>
+          <div class="product-price-row">
+            <span class="price-current"><?= number_format($p['current_price']) ?>đ</span>
+            <?php if ($p['old_price'] && $p['old_price'] > $p['current_price']): ?>
+              <span class="price-old"><?= number_format($p['old_price']) ?>đ</span>
+            <?php endif; ?>
+          </div>
+        </div>
       </div>
       <?php endforeach; ?>
     </div>
@@ -286,7 +409,7 @@ function switchTab(tab) {
   <div class="container">
     <div class="section-header">
       <h2 class="section-title">Góc sức khỏe</h2>
-      <a href="/blog" class="see-all">Xem tất cả →</a>
+      <a href="<?= BASE_URL ?>blog" class="see-all">Xem tất cả →</a>
     </div>
     <div class="blog-grid">
 
@@ -296,7 +419,7 @@ function switchTab(tab) {
         </div>
         <div class="blog-content">
           <span class="blog-tag">Sức khỏe tổng quát</span>
-          <h3><a href="/blog/1">10 thói quen buổi sáng giúp tăng cường miễn dịch cả ngày</a></h3>
+          <h3><a href="<?= BASE_URL ?>blog/1">10 thói quen buổi sáng giúp tăng cường miễn dịch cả ngày</a></h3>
           <p>Khởi đầu ngày mới với những thói quen đơn giản nhưng hiệu quả, được các chuyên gia y tế khuyến nghị...</p>
           <div class="blog-meta">
             <span>👨‍⚕️ Dược sĩ Nguyễn An</span>
@@ -318,7 +441,7 @@ function switchTab(tab) {
           <div class="blog-list-num"><?= str_pad($i+1, 2, '0', STR_PAD_LEFT) ?></div>
           <div>
             <span class="blog-tag"><?= htmlspecialchars($post['tag']) ?></span>
-            <h4><a href="/blog/<?= $i+2 ?>"><?= htmlspecialchars($post['title']) ?></a></h4>
+            <h4><a href="<?= BASE_URL ?>blog/<?= $i+2 ?>"><?= htmlspecialchars($post['title']) ?></a></h4>
             <span class="blog-date"><?= $post['date'] ?></span>
           </div>
         </article>
@@ -329,12 +452,6 @@ function switchTab(tab) {
   </div>
 </section>
 
-<!-- ===== TOAST NOTIFICATION ===== -->
-<div class="toast" id="cartToast">
-  <span class="toast-icon">✅</span>
-  <span id="toastMsg">Đã thêm vào giỏ hàng!</span>
-</div>
-
 <!-- ===== INLINE JS ===== -->
 <script>
 // Hero Slider
@@ -343,6 +460,7 @@ const slides = document.querySelectorAll('.hero-slide');
 const dots = document.querySelectorAll('.dot');
 
 function showSlide(n) {
+  if (!slides.length) return;
   slides[currentSlide].classList.remove('active');
   dots[currentSlide].classList.remove('active');
   currentSlide = (n + slides.length) % slides.length;
@@ -353,40 +471,15 @@ function changeSlide(dir) { showSlide(currentSlide + dir); }
 function goSlide(n) { showSlide(n); }
 
 // Auto-advance
-setInterval(() => changeSlide(1), 5000);
+if (slides.length) setInterval(() => changeSlide(1), 5000);
 
 // Product Tabs
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', function() {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     this.classList.add('active');
-    // Gọi AJAX nếu cần: fetch('/products?tab=' + this.dataset.tab)
   });
 });
-
-// Add to Cart
-function addToCart(productId) {
-  fetch('/cart/add', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'},
-    body: JSON.stringify({ product_id: productId, quantity: 1 })
-  })
-  .then(r => r.json())
-  .then(data => {
-    showToast(data.message || 'Đã thêm vào giỏ hàng!');
-    // Cập nhật số lượng giỏ hàng trên header
-    const badge = document.querySelector('.cart-count');
-    if (badge && data.cart_count) badge.textContent = data.cart_count;
-  })
-  .catch(() => showToast('Đã thêm vào giỏ hàng!'));
-}
-
-function showToast(msg) {
-  const t = document.getElementById('cartToast');
-  document.getElementById('toastMsg').textContent = msg;
-  t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 3000);
-}
 </script>
 
 <?php include __DIR__ . '/layout/footer.php'; ?>

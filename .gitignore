@@ -1,0 +1,10 @@
+.env
+vendor/
+storage/logs/*
+storage/cache/*
+storage/prescriptions/*
+.DS_Store
+Thumbs.db
+scratch/
+brain/
+.gemini/
